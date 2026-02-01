@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Devil's Path</title>
+    <style>
+        :root {
+            --bg: #222;
+            --fg: #eee;
+            --accent: #ff4757;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: var(--bg);
+            font-family: 'Courier New', monospace;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #333;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud {
+            padding: 20px;
+            color: var(--fg);
+            font-weight: bold;
+            font-size: 20px;
+            display: flex;
+            justify-content: space-between;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 10;
+        }
+
+        /* Menu Styling */
+        .menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 30px;
+            border: 4px solid var(--fg);
+            text-align: center;
+            pointer-events: auto;
+            display: none;
+            border-radius: 8px;
+            z-index: 20;
+            min-width: 300px;
+        }
+
+        .menu h1 {
+            color: var(--accent);
+            margin: 0 0 20px 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .menu p {
+            color: var(--fg);
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        /* Buttons */
+        button {
+            background: var(--fg);
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 0;
+            text-transform: uppercase;
+            border-radius: 4px;
+            width: 100%;
+            display: block;
+            box-sizing: border-box;
+        }
+
+        button:active {
+            transform: scale(0.95);
+            background: #ccc;
+        }
+
+        /* Skip Button (Red) */
+        .skip-btn {
+            background: var(--accent);
+            color: white;
+            border: 2px solid white;
+            margin-bottom: 15px;
+        }
+
+        #controls {
+            pointer-events: auto;
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            padding-bottom: 40px;
+        }
+
+        .d-pad {
+            display: flex;
+            gap: 20px;
+        }
+
+        .btn {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 30px;
+        }
+
+        .btn:active {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .visible {
+            display: block !important;
+        }
+
+        #flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.1s;
+            z-index: 5;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui-layer">
+        <div class="hud">
+            <span id="level-display">LEVEL 1</span>
+            <span id="death-display">💀 0</span>
+        </div>
+
+        <div id="start-screen" class="menu visible">
+            <h1>Devil's Path</h1>
+            <p>30 Levels of Pain.</p>
+            <button onclick="initGame()">TAP TO START</button>
+        </div>
+
+        <div id="level-complete" class="menu">
+            <h1>Level Clear!</h1>
+            <button onclick="nextLevel()">Next Level</button>
+        </div>
+
+        <div id="fail-modal" class="menu">
+            <h1>YOU DIED</h1>
+            <button class="skip-btn" onclick="skipLevel()">⏩ SKIP LEVEL</button>
+            <button onclick="closeFailModal()">Try Again</button>
+        </div>
+
+        <div id="controls">
+            <div class="d-pad">
+                <div class="btn" id="btn-left">←</div>
+                <div class="btn" id="btn-right">→</div>
+            </div>
+            <div class="btn" id="btn-jump">↑</div>
+        </div>
+    </div>
+
+    <div id="flash"></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /**
+         * 🎮 CONFIGURATION
+         */
+        const VIRTUAL_HEIGHT = 600;
+        // ⚠️ CHANGED TO 1 SO SKIP BUTTON APPEARS IMMEDIATELY FOR TESTING
+        const DEATH_THRESHOLD = 1;
+
+        /**
+         * 🔊 AUDIO SYSTEM
+         */
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playTone(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'jump') {
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'death') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(50, now + 0.3);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.3);
+                osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'win') {
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(880, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.4);
+                osc.start(now); osc.stop(now + 0.4);
+            }
+        }
+
+        /**
+         * ⏩ SKIP LOGIC
+         */
+        function skipLevel() {
+            document.getElementById('fail-modal').classList.remove('visible');
+            nextLevel();
+        }
+
+        function closeFailModal() {
+            document.getElementById('fail-modal').classList.remove('visible');
+            respawn();
+        }
+
+        /**
+         * 🎮 GAME ENGINE
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const GRAVITY = 0.6;
+        const FRICTION = 0.8;
+        const JUMP_FORCE = -13;
+
+        let state = { level: 1, deaths: 0, levelDeaths: 0, playing: false };
+        let keys = { left: false, right: false, up: false };
+        let player = { x: 50, y: 200, w: 30, h: 30, vx: 0, vy: 0, grounded: false, dead: false, color: '#3498db' };
+        let camera = { x: 0 };
+        let platforms = [];
+        let particles = [];
+        let gameLoopId = null;
+        let gameScale = 1;
+
+        // Save System
+        function saveGame() { localStorage.setItem('devilspath_save', JSON.stringify({ level: state.level, deaths: state.deaths })); }
+        function loadGame() {
+            try {
+                const d = JSON.parse(localStorage.getItem('devilspath_save'));
+                if (d) { state.level = d.level || 1; state.deaths = d.deaths || 0; }
+            } catch (e) { }
+        }
+
+        // Input Handling
+        const handleKey = (c, v) => {
+            if (c === 'ArrowLeft') keys.left = v;
+            if (c === 'ArrowRight') keys.right = v;
+            if (c === 'ArrowUp' || c === 'Space') keys.up = v;
+        };
+        window.addEventListener('keydown', e => handleKey(e.code, true));
+        window.addEventListener('keyup', e => handleKey(e.code, false));
+        const bindTouch = (id, k) => {
+            const el = document.getElementById(id);
+            el.addEventListener('touchstart', e => { e.preventDefault(); keys[k] = true; });
+            el.addEventListener('touchend', e => { e.preventDefault(); keys[k] = false; });
+        };
+        bindTouch('btn-left', 'left'); bindTouch('btn-right', 'right'); bindTouch('btn-jump', 'up');
+
+        // Level Generator
+        function loadLevel(lvl) {
+            player.vx = 0; player.vy = 0; player.dead = false;
+            state.levelDeaths = 0;
+            particles = [];
+            platforms = [{ x: 0, y: 500, w: 200, h: 40, type: 0 }];
+
+            const goalX = 600 + (lvl * 100);
+            platforms.push({ x: goalX, y: 440, w: 40, h: 60, type: 2 }); // Goal
+
+            if (lvl === 1) platforms.push({ x: 250, y: 500, w: 300, h: 40, type: 0 });
+            else if (lvl === 2) { platforms.push({ x: 250, y: 500, w: 100, h: 40, type: 0 }); platforms.push({ x: 450, y: 500, w: 100, h: 40, type: 0 }); }
+            else {
+                let cx = 200;
+                while (cx < goalX - 100) {
+                    let type = 0, beh = null, w = 80 + Math.random() * 100;
+                    if (Math.random() > 0.6) type = 1;
+                    if (lvl > 5 && Math.random() > 0.8) { type = 3; beh = 'fake'; }
+                    if (lvl > 10 && Math.random() > 0.7) beh = 'move';
+                    if (lvl > 15 && Math.random() > 0.7) beh = 'disappear';
+                    platforms.push({ x: cx, y: 500, w: w, h: 40, type: type, behavior: beh, origY: 500, offset: Math.random() * 10 });
+                    cx += w + 60 + (Math.random() * 60);
+                }
+            }
+            player.x = 50; player.y = 400;
+            updateUI();
+        }
+
+        function update() {
+            if (!state.playing || player.dead) return;
+
+            if (keys.left) player.vx -= 1;
+            if (keys.right) player.vx += 1;
+            if (keys.up && player.grounded) { player.vy = JUMP_FORCE; player.grounded = false; playTone('jump'); }
+
+            player.vx *= FRICTION; player.vy += GRAVITY;
+            player.x += player.vx; player.y += player.vy;
+            player.grounded = false;
+
+            if (player.y > 800) killPlayer();
+
+            platforms.forEach(p => {
+                if (p.behavior === 'move') p.y = p.origY + Math.sin((Date.now() / 300) + p.offset) * 50;
+                if (player.x < p.x + p.w && player.x + player.w > p.x && player.y < p.y + p.h && player.y + player.h > p.y) {
+                    if (p.type === 2) { levelComplete(); return; }
+                    if (p.type === 1) { killPlayer(); return; }
+                    if (player.vy > 0 && player.y + player.h - player.vy <= p.y + (p.vy || 0)) {
+                        if (p.behavior === 'fake') { killPlayer(); return; }
+                        player.grounded = true; player.vy = 0; player.y = p.y - player.h;
+                        if (p.behavior === 'disappear') { p.y = 9999; spawnParticles(p.x + p.w / 2, p.y, '#fff'); }
+                    } else if (player.vy < 0 && player.y - player.vy >= p.y + p.h) { player.vy = 0; player.y = p.y + p.h; }
+                    else if (player.vx > 0) { player.x = p.x - player.w; player.vx = 0; }
+                    else if (player.vx < 0) { player.x = p.x + p.w; player.vx = 0; }
+                }
+            });
+            camera.x = player.x - 150;
+            updateParticles();
+        }
+
+        function draw() {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.scale(gameScale, gameScale);
+            ctx.translate(-camera.x, 0);
+
+            platforms.forEach(p => {
+                if (p.y > 1000) return;
+                ctx.fillStyle = p.type === 2 ? '#2ecc71' : (p.type === 1 ? '#ff4757' : '#ecf0f1');
+                if (p.behavior === 'fake') ctx.fillStyle = '#ecf0f1';
+                ctx.fillRect(p.x, p.y, p.w, p.h);
+                if (p.type === 1) { ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.w / 2, p.y - 10); ctx.lineTo(p.x + p.w, p.y); ctx.fill(); }
+            });
+
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+            ctx.fillStyle = '#fff'; ctx.fillRect(player.x + (player.vx > 0 ? 20 : 5), player.y + 8, 5, 5);
+
+            particles.forEach(p => { ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, p.s, p.s); });
+
+            if (state.playing || !player.dead) {
+                gameLoopId = requestAnimationFrame(() => { update(); draw(); });
+            }
+        }
+
+        function killPlayer() {
+            if (player.dead) return;
+            player.dead = true;
+            state.deaths++;
+            state.levelDeaths++;
+            saveGame();
+            playTone('death');
+            spawnParticles(player.x, player.y, '#ff4757');
+            document.getElementById('flash').style.opacity = 0.8;
+            setTimeout(() => document.getElementById('flash').style.opacity = 0, 100);
+            updateUI();
+
+            // SHOW FAIL SCREEN IMMEDIATELY IF DEATHS >= THRESHOLD
+            if (state.levelDeaths >= DEATH_THRESHOLD) {
+                state.playing = false; // Stop the game loop
+                setTimeout(() => {
+                    document.getElementById('fail-modal').classList.add('visible');
+                }, 600);
+            } else {
+                setTimeout(respawn, 500);
+            }
+        }
+
+        function respawn() {
+            loadLevel(state.level);
+            state.playing = true;
+            startLoop();
+        }
+
+        function levelComplete() {
+            state.playing = false; saveGame(); playTone('win');
+            document.getElementById('level-complete').classList.add('visible');
+        }
+
+        function nextLevel() {
+            state.level++; if (state.level > 30) state.level = 1;
+            saveGame(); document.getElementById('level-complete').classList.remove('visible'); respawn();
+        }
+
+        function startLoop() {
+            if (gameLoopId) cancelAnimationFrame(gameLoopId);
+            gameLoopId = requestAnimationFrame(() => { update(); draw(); });
+        }
+
+        function spawnParticles(x, y, c) { for (let i = 0; i < 15; i++) particles.push({ x: x, y: y, vx: (Math.random() - .5) * 10, vy: (Math.random() - .5) * 10, life: 1, c: c, s: Math.random() * 6 }); }
+        function updateParticles() { for (let i = particles.length - 1; i >= 0; i--) { particles[i].x += particles[i].vx; particles[i].y += particles[i].vy; particles[i].life -= 0.05; if (particles[i].life <= 0) particles.splice(i, 1); } }
+        function updateUI() { document.getElementById('level-display').innerText = `LEVEL ${state.level}`; document.getElementById('death-display').innerText = `💀 ${state.deaths}`; }
+
+        function initGame() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            loadGame();
+            resizeCanvas();
+            document.getElementById('start-screen').classList.remove('visible');
+            loadLevel(state.level);
+            state.playing = true;
+            startLoop();
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gameScale = window.innerHeight / VIRTUAL_HEIGHT;
+        }
+        window.onresize = resizeCanvas;
+        window.onerror = function (msg) { console.error(msg); };
+
+    </script>
+</body>
+
+</html>
