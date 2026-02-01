@@ -1,0 +1,35 @@
+{
+  "name": "com.devilspath.game",
+  "displayName": "Devil's Path",
+  "version": "1.0.0",
+  "description": "Mobile Platformer Game",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ecosystem:cordova"
+  ],
+  "author": "Developer",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "admob-plus-cordova": "^1.28.0",
+    "cordova-android": "^11.0.0",
+    "cordova-plugin-androidx-adapter": "^1.1.3"
+  },
+  "cordova": {
+    "plugins": {
+      "admob-plus-cordova": {
+        "APP_ID_ANDROID": "ca-app-pub-1126148240601289~7885385251",
+        "PLAY_SERVICES_VERSION": "20.6.0"
+      },
+      "cordova-plugin-androidx-adapter": {}
+    },
+    "platforms": [
+      "android"
+    ]
+  },
+  "dependencies": {
+    "cordova": "^13.0.0"
+  }
+}

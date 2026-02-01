@@ -1,0 +1,9 @@
+node_modules/
+platforms/
+plugins/
+www/
+!www/index.html
+!www/css/
+!www/js/
+!www/img/
+.DS_Store
